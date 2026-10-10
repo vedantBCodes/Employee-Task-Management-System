@@ -1,16 +1,63 @@
-# React + Vite
+# Employee & Task Management System — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This is the frontend of my Employee & Task Management System, built using React and Vite. It provides an interface for managing employees and tasks, viewing dashboard statistics, tracking task progress, and exporting task data to CSV.
 
-Currently, two official plugins are available:
+## Tech Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React — for building the user interface
+- Vite — for development and production builds
+- React Router — for page navigation and URL-based task filters
+- CSS — for styling and responsive layouts
 
-## React Compiler
+## Getting Started
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 1. Install dependencies
 
-## Expanding the ESLint configuration
+Navigate to the client directory and install the required packages:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+cd client
+npm install
+```
+
+### 2. Configure the backend URL
+
+Create a `.env` file in the `client` directory using `.env.example` as a reference.
+
+Set `VITE_API_BASE_URL` to the URL of the backend API. For local development, use:
+
+```env
+VITE_API_BASE_URL=http://localhost:5001/api
+```
+
+Make sure the backend is running before using the application.
+
+### 3. Start the development server
+
+```bash
+npm run dev
+```
+
+Vite will display the local URL where you can open the application in your browser.
+
+## Available Features
+
+- View dashboard statistics and employee workloads.
+- Add, view, edit, and delete employees.
+- Create, view, and edit tasks.
+- Update task statuses using the allowed transitions.
+- Search, filter, sort, and paginate tasks.
+- Export filtered task results to CSV.
+
+The frontend communicates with the Express backend for data retrieval, validation, and business rules.
+
+## Build and Lint
+
+To check the code and create a production build, run:
+
+```bash
+npm run lint
+npm run build
+```
+
+The production files are generated in the `dist` directory.

@@ -1,37 +1,41 @@
 # Employee & Task Management System
 
-A MERN application built for the Roots Media Marketing developer assignment. It provides a dashboard and tools for maintaining employee records, assigning and tracking work, and exporting task data.
+I built this project as part of the Roots Media Marketing developer assignment. It is a MERN stack application for managing employee records, assigning tasks, tracking their progress, and viewing overall team workload.
 
 ## Features
 
-- Dashboard totals for employees and tasks, task counts by status, overdue count, and active workload by employee.
-- Employee creation, listing, viewing, editing, and deletion with server-side pagination and schema validation.
-- Task creation, listing, viewing, editing, status transitions, filtering, search, sorting, pagination, and CSV export.
-- Backend enforcement of employee eligibility, inclusive leave dates, and the three-active-task limit.
-- Historical employee snapshots on tasks so task history remains readable after eligible employee deletion.
-- Responsive React layout with loading, error, retry, and empty states.
+- **Dashboard:** View employee counts, task status counts, overdue tasks, and employee workloads.
+- **Employee management:** Add, view, edit, and delete employee records.
+- **Task management:** Create, view, and edit tasks, and update their status through the allowed transitions.
+- **Search and filters:** Find tasks by title or employee name, filter by department, priority, status, and due date, and sort the results.
+- **Pagination:** Load employee and task records in pages from the backend.
+- **CSV export:** Export all tasks matching the current search, filters, and sorting.
+- **Validation:** Enforce employee eligibility, leave dates, task date rules, and the limit of three active tasks per employee.
+- **Task history:** Preserve employee details on existing tasks when an employee is deleted.
 
-## Technology stack
+## Tech Stack
 
-- Frontend: React 19, Vite, React Router, and CSS.
-- Backend: Node.js, Express 5, Mongoose 9, MongoDB, `cors`, and `dotenv`.
-- Backend development server: `nodemon`.
+- **Frontend:** React 19, Vite, React Router, CSS
+- **Backend:** Node.js, Express 5
+- **Database:** MongoDB with Mongoose 9
+- **Other tools:** dotenv, CORS, Nodemon
 
-The frontend and backend are separate projects with their own `package.json` and lockfile.
+The frontend and backend have separate package files and can be run independently.
 
-## Project structure
+## Project Structure
 
 ```text
 .
 ├── client/
 │   ├── src/
-│   │   ├── api/                 # Frontend API clients and base URL
-│   │   ├── components/          # Layout, forms, details, and shared UI
-│   │   └── pages/               # Dashboard, Employees, and Tasks pages
+│   │   ├── api/
+│   │   ├── components/
+│   │   └── pages/
 │   ├── .env.example
 │   └── package.json
 ├── server/
-│   ├── scripts/verify-business-rules.js
+│   ├── scripts/
+│   │   └── verify-business-rules.js
 │   ├── src/
 │   │   ├── controllers/
 │   │   ├── models/
@@ -43,203 +47,241 @@ The frontend and backend are separate projects with their own `package.json` and
 └── README.md
 ```
 
-## Prerequisites
+## Getting Started
 
-- Node.js with npm. Use a current Node.js release compatible with the installed Vite and Mongoose versions.
-- MongoDB running locally as a replica set, or another MongoDB replica-set URI available to the backend.
-- `mongosh` for initializing a local replica set.
+### Prerequisites
 
-## Installation and local run
+Before running the project, make sure you have:
 
-Install the backend and frontend dependencies in separate terminals or run these commands from the repository root:
+- Node.js and npm installed
+- MongoDB configured as a replica set
+- `mongosh` available for local replica-set setup
 
-```sh
+### 1. Set up the backend
+
+From the project root, run:
+
+```bash
 cd server
 npm ci
 cp .env.example .env
 ```
 
-Configure `server/.env` as described below, then start the API:
-
-```sh
-cd server
-npm run dev
-```
-
-In another terminal, install and start the frontend:
-
-```sh
-cd client
-npm ci
-cp .env.example .env
-npm run dev
-```
-
-Open the local URL printed by Vite. The frontend defaults to the API at `http://localhost:5001/api`.
-
-## MongoDB replica-set setup
-
-Task creation, status changes, task edits/deletion that affect active-task counts, and guarded employee deletion use MongoDB transactions. MongoDB transactions require a replica set (including a single-node local replica set); a standalone `mongod` is not sufficient. Transaction-dependent operations return a service-unavailable response if the deployment does not support transactions.
-
-For a local development MongoDB instance, start `mongod` with replica-set mode and a local-only bind address. Supply a data directory appropriate for your machine:
-
-```sh
-mongod --replSet rs0 --dbpath /path/to/your/mongodb-data --bind_ip 127.0.0.1
-```
-
-In another terminal, initialize the set once:
-
-```sh
-mongosh --eval 'rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "127.0.0.1:27017" }] })'
-```
-
-Wait for the member to become primary (`rs.status()` in `mongosh`) before starting the backend. If MongoDB is already managed by a local service, configure that service's `mongod` configuration with `replication.replSetName: rs0` and restart it instead of starting a second process. Do not expose an unauthenticated development database to a public network.
-
-## Environment configuration
-
-Copy the example files and adjust values for your local setup. The examples contain placeholders/defaults only; never commit `.env` files or credentials.
-
-### Backend: `server/.env`
-
-Based on `server/.env.example`:
+Open `server/.env` and configure the database connection:
 
 ```dotenv
 PORT=5001
 MONGODB_URI=mongodb://127.0.0.1:27017/employee-task-management?replicaSet=rs0
 ```
 
-`PORT` is the API listening port (defaults to `5001` when omitted). `MONGODB_URI` must point to the intended database and a transaction-capable replica set.
+Start the backend:
 
-### Frontend: `client/.env`
+```bash
+npm run dev
+```
 
-Based on `client/.env.example`:
+The API runs on port `5001` with this configuration.
+
+### 2. Set up the frontend
+
+Open another terminal and run:
+
+```bash
+cd client
+npm ci
+cp .env.example .env
+```
+
+Configure the frontend API URL in `client/.env`:
 
 ```dotenv
 VITE_API_BASE_URL=http://localhost:5001/api
 ```
 
-Vite exposes this variable to the browser bundle. Set it to the reachable API base URL, including `/api`, when running in another environment. Do not put secrets in `VITE_` variables.
+Start the frontend:
 
-## Useful commands
-
-```sh
-# Backend (from server/)
+```bash
 npm run dev
-npm start
-node scripts/verify-business-rules.js
-
-# Frontend (from client/)
-npm run dev
-npm run lint
-npm run build
-npm run preview
 ```
 
-The business-rule verifier requires `server/.env` to specify a local MongoDB URI with a `replicaSet` query parameter. It derives a unique temporary database name, starts the API against that database, and removes only the employee/task records it created. It does not drop the database. It refuses non-local MongoDB hosts so the configured application database is not used for test writes.
+Open the local URL printed by Vite in your browser. Make sure the backend is running as well.
 
-## API reference
+## MongoDB Setup
 
-All API routes are mounted under `/api`. Successful JSON responses use `{ "success": true, "data": ... }`; list responses also include `pagination`. Errors use `{ "success": false, "error": { "message": ... } }` (validation errors may include `details`).
+This project uses MongoDB transactions to protect operations such as task assignment and employee deletion. Because of that, MongoDB must run as a replica set; a standalone MongoDB instance is not sufficient.
+
+For a local development instance, you can start MongoDB with replica-set mode enabled:
+
+```bash
+mongod --replSet rs0 --dbpath /path/to/your/mongodb-data --bind_ip 127.0.0.1
+```
+
+Replace the data directory with a suitable local path.
+
+Initialize the replica set once:
+
+```bash
+mongosh --eval 'rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "127.0.0.1:27017" }] })'
+```
+
+Wait for the replica-set member to become primary before starting the backend. If you already run MongoDB as a local service, configure that service instead of starting a second MongoDB process.
+
+Keep local development databases restricted to your own machine.
+
+## Useful Commands
+
+Run these commands from the appropriate directory.
+
+| Command | Purpose |
+|---|---|
+| `npm run dev` in `server/` | Start the backend in development mode |
+| `npm start` in `server/` | Start the backend normally |
+| `node scripts/verify-business-rules.js` in `server/` | Verify important backend rules |
+| `npm run dev` in `client/` | Start the frontend |
+| `npm run lint` in `client/` | Check frontend code |
+| `npm run build` in `client/` | Create a production build |
+| `npm run preview` in `client/` | Preview the production build |
+
+The business-rule verification script uses an isolated temporary database and cleans up the test records it creates. It requires a local MongoDB replica set and should be run only after configuring the backend environment.
+
+## Main API Endpoints
+
+All endpoints are prefixed with `/api`.
 
 ### Employees
 
-| Method and path | Behavior |
-| --- | --- |
-| `POST /api/employees` | Create an employee; returns `201`. Required and schema validation applies. Duplicate Employee ID/email returns `409`; invalid input returns `400`. |
-| `GET /api/employees?page=1&limit=10` | List employees, sorted newest first, using MongoDB pagination. Defaults: page `1`, limit `10`; limit maximum `100`. Returns employee records and `{ page, limit, total, totalPages }`. |
-| `GET /api/employees/:id` | Get one employee. Invalid 24-character hexadecimal ObjectId syntax returns `400`; missing employee returns `404`. |
-| `PUT /api/employees/:id` | Partially update supplied employee fields. Omitted fields remain unchanged; immutable/unknown fields are rejected. Schema validators run on save. |
-| `DELETE /api/employees/:id` | Delete only if the employee has no `Todo` or `In Progress` tasks. Otherwise returns `400`. Eligible deletion snapshots employee details onto historical tasks in a transaction. |
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/employees` | Add an employee |
+| GET | `/employees` | Get a paginated employee list |
+| GET | `/employees/:id` | Get one employee |
+| PUT | `/employees/:id` | Update employee details |
+| DELETE | `/employees/:id` | Delete an eligible employee |
+
+Employee IDs and email addresses must be unique. Invalid input returns a validation error, while duplicate IDs or emails return `409 Conflict`.
+
+An employee cannot be deleted while they have tasks in `Todo` or `In Progress`. When deletion is allowed, the application saves the employee's details on their existing tasks so that historical records remain readable.
 
 ### Tasks
 
-| Method and path | Behavior |
-| --- | --- |
-| `POST /api/tasks` | Create a task. Accepts `title`, `description`, `assignedEmployee` (MongoDB employee ID), `department`, `priority`, `startDate`, and `dueDate`. Status starts as `Todo`; task ID is backend-generated. |
-| `GET /api/tasks` | List tasks with server-side search, filters, sorting, population/snapshot fallback, overdue flag, and pagination. See query parameters below. |
-| `GET /api/tasks/:id` | **Not implemented.** Task details are obtained from the task list response in the current frontend. |
-| `PUT /api/tasks/:id` | Edit task details using only the fields accepted by task creation. Completed and Cancelled tasks cannot be edited. Omitted fields are retained. |
-| `PUT /api/tasks/:id/status` | Apply an allowed status transition. The request body accepts only `{ "status": "..." }`. |
-| `DELETE /api/tasks/:id` | Delete a task by MongoDB ID. |
-| `GET /api/tasks/export` | Download all tasks matching supported search, filters, and sorting as `tasks.csv`. Pagination does not limit the export. |
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/tasks` | Create a task |
+| GET | `/tasks` | Get tasks with search, filters, sorting, and pagination |
+| PUT | `/tasks/:id` | Edit task details |
+| PUT | `/tasks/:id/status` | Change task status |
+| DELETE | `/tasks/:id` | Delete a task |
+| GET | `/tasks/export` | Export matching tasks to CSV |
 
-Task-list and export query parameters:
+The task details view currently uses data from the task list response; a separate `GET /tasks/:id` endpoint is not implemented.
 
-| Parameter | Values / behavior |
-| --- | --- |
-| `page` | Positive integer; default `1`. |
-| `limit` | Positive integer up to `100`; default `10`. |
-| `search` | Up to 100 characters; case-insensitive search of task title and assigned employee name. |
-| `department` | `Development`, `Design`, `QA`, `HR`, or `Sales`. |
-| `priority` | `Low`, `Medium`, `High`, or `Critical`. |
-| `status` | `Todo`, `In Progress`, `Completed`, or `Cancelled`. |
-| `dueDate` | Exact calendar date in `YYYY-MM-DD` format. Mutually exclusive with the date range. |
-| `dueDateFrom`, `dueDateTo` | Inclusive calendar-date range in `YYYY-MM-DD` format; may be used separately or together. |
-| `sortBy` | `createdAt` (default), `dueDate`, `priority`, or `title`. Priority order is Critical, High, Medium, Low. |
-| `sortOrder` | `asc` or `desc` (default `desc`). |
+The task list supports these query parameters:
 
-Filters compose with one another. Invalid/unsupported query values return `400`. A list response has `data` and `pagination: { page, limit, total, totalPages }`. Each task includes populated assigned-employee details when the employee exists, or the saved snapshot when it has been deleted. List requests are aggregated and paginated in MongoDB.
+- `page` and `limit` for pagination
+- `search` for task title and employee name
+- `department`, `priority`, and `status` for filtering
+- `dueDate` or `dueDateFrom` and `dueDateTo` for due-date filtering
+- `sortBy` for `createdAt`, `dueDate`, `priority`, or `title`
+- `sortOrder` for ascending or descending order
 
-### Dashboard and health
+These filters can be combined. The backend performs filtering, sorting, and pagination in MongoDB rather than fetching all records and filtering them in React.
 
-| Method and path | Behavior |
-| --- | --- |
-| `GET /api/dashboard` | Returns `employees: { total, active }`, `tasks: { total, byStatus, overdue }`, and `employeeWorkload`. Workload includes all existing employees, including those with zero active tasks. |
-| `GET /api/health` | Returns `200` with `{ "status": "ok" }` when Mongoose is connected; otherwise returns `503` with `{ "status": "unavailable" }`. |
+### Dashboard and Health
 
-## Data model and business rules
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/dashboard` | Get dashboard statistics and employee workload |
+| GET | `/health` | Check whether the backend is connected to MongoDB |
 
-### Employee
+The dashboard includes employees with no active tasks, so the workload information covers the full employee list.
 
-- `employeeId`, `fullName`, `email`, `phone`, `department`, `role`, `joiningDate`, and `status` are required.
-- Employee ID and email have unique MongoDB indexes. Email is trimmed, lowercased, and format-validated. Phone accepts a 10-digit Indian mobile number, optionally prefixed with `+91`, with spaces or hyphens permitted.
-- Department is one of Development, Design, QA, HR, or Sales. Status is Active, Inactive, or On Leave.
-- `skills` is an array of strings and defaults to an empty array.
-- `leaveStart` and `leaveEnd` are required for On Leave employees; leave end must be on or after leave start. The model clears leave dates for Active or Inactive status.
-- Mongoose timestamps generate `createdAt` and `updatedAt`.
+## How the Main Rules Work
 
-### Task
+### Employee records
 
-- `taskId` is generated by the backend with a UUID-based value and has a unique index. `title`, `description`, `assignedEmployee`, `department`, `priority`, `status`, `startDate`, and `dueDate` are validated by the schema; status defaults to Todo. Due date cannot precede start date.
-- `assignedEmployee` references an Employee. `assignedEmployeeSnapshot` stores identifying employee details for historical display if that employee is later deleted.
-- `completedAt` is optional and is generated by the backend only on an allowed transition to Completed. Clients cannot set it through create, ordinary task edit, or status routes.
-- `createdAt` and `updatedAt` are Mongoose timestamps.
-- New task assignment rejects Inactive employees and On Leave employees only when the task's start calendar date falls within the inclusive leave interval. Active employees can be assigned subject to capacity.
-- An employee may have at most three tasks in `Todo` or `In Progress`. Completed and Cancelled tasks do not count.
-- Task status transitions are `Todo` → `In Progress` or `Cancelled`; `In Progress` → `Completed` or `Cancelled`; Completed and Cancelled are terminal.
-- A task is overdue when the server's local calendar date is later than its due date and status is neither Completed nor Cancelled. The task list, dashboard, and CSV export use the shared backend calculation.
+Each employee has an Employee ID, name, email, phone, department, role, joining date, status, and skills. Employees marked `On Leave` must also have leave start and end dates.
 
-## Employee deletion and task history
+The available departments are Development, Design, QA, HR, and Sales. Employee status can be Active, Inactive, or On Leave.
 
-The backend checks for `Todo` and `In Progress` tasks in a transaction and rejects deletion with `400` if any exist. If deletion is permitted, the employee's ID, Employee ID, name, department, role, and status are copied to each existing task's snapshot field before the employee record is removed. Task list population and CSV export fall back to that snapshot when the Employee reference no longer resolves.
+### Task assignment
 
-## CSV export
+Task IDs are generated by the backend, and new tasks start with the status `Todo`.
 
-`GET /api/tasks/export` accepts the task search, filter, and sort parameters described above and exports every matching task (not just the current page). Columns are Task ID, Title, Description, Employee Name, Department, Priority, Status, Start Date, Due Date, Created Date, Completed Date, and Overdue. Dates and overdue values use the backend's task-list/dashboard rules. Missing employee references use the historical snapshot, then a readable fallback label if none is available.
+- Inactive employees cannot be assigned tasks.
+- On Leave employees cannot be assigned a task whose start date falls within their leave period, including either boundary date.
+- An employee can have at most three active tasks. `Todo` and `In Progress` count as active; Completed and Cancelled do not.
+- The due date cannot be earlier than the start date.
 
-CSV cells are quoted and embedded double quotes are escaped. Untrusted text beginning with spreadsheet formula characters (`=`, `+`, `-`, `@`) or relevant control characters is prefixed to prevent formula interpretation when opened in common spreadsheet applications. The response is a CSV attachment named `tasks.csv`.
+The backend checks these rules, including when requests happen at the same time. MongoDB transactions help prevent concurrent requests from exceeding the active-task limit.
 
-## Frontend pages and URL state
+### Task status and completion date
 
-- `/` — dashboard statistics and employee workload.
-- `/employees` — employee table, create/view/edit/delete flows, and paginated listing.
-- `/tasks` — task table, create/view/edit/status flows, filtering, sorting, pagination, and CSV export.
+The allowed status changes are:
 
-The Tasks page stores search, department, priority, status, due date, sort field, sort order, and page in the URL query string. Changing a search/filter/sort resets the page to 1; pagination updates the `page` parameter. Refreshing or sharing the URL restores the task-list query state. The browser back/forward controls also follow URL state. The Employees page pagination is held in page state rather than the URL.
+- `Todo` → `In Progress` or `Cancelled`
+- `In Progress` → `Completed` or `Cancelled`
 
-## Assignment questions
+Completed and Cancelled tasks are terminal states. Their details cannot be edited, and they cannot be reopened through the status endpoint.
 
-1. **How are valid status transitions enforced?** The backend status endpoint accepts only a status field and checks the current-to-requested transition against the allowed transition map inside a MongoDB transaction.
-2. **How is the completion date generated?** On a successful transition to Completed, the backend sets `completedAt` to the server's current date/time. The client cannot supply it.
-3. **How are inactive and on-leave employees handled?** Assignment to Inactive is rejected. For On Leave, the task start calendar date is compared inclusively with the employee leave interval; dates outside it are allowed subject to capacity.
-4. **How are filtering and pagination implemented?** The task controller builds MongoDB aggregation stages for employee-name/title search, composable filters, sorting, and a pagination facet. Employee listing uses Mongoose `.skip()`/`.limit()` plus a document count.
-5. **How are filters preserved in the URL?** The Tasks page reads/writes query parameters with React Router's `useSearchParams`; search, filters, sorting, and page are reflected there and restored after reload.
-6. **How is the race condition for assigning a fourth active task addressed?** Each assignment transaction writes/increments a shared version field on the employee before counting active tasks and inserting. Concurrent transactions for that employee conflict and retry/abort rather than both passing a stale count. This protection depends on MongoDB transaction support from a replica set.
+When a task becomes Completed, the backend generates its completion date. The frontend cannot set that date itself.
 
-## Limitations and deployment considerations
+### Overdue tasks
 
-- There is no authentication or authorization. Do not expose these APIs to the public internet as-is.
-- Express currently uses permissive `cors()` configuration. Restrict allowed origins to the deployed frontend before public deployment.
-- Configure production MongoDB with authentication, TLS/network restrictions, backups, and replica-set transaction support. Keep credentials in deployment secrets, not the repository or frontend bundle.
-- The frontend must be built with a reachable `VITE_API_BASE_URL`; that URL is public client configuration, not a secret. Configure HTTPS and the API CORS allowlist to match the deployed frontend origin.
-- No deployment URLs or production hosting configuration are defined in this repository.
+A task is overdue when the server's local calendar date is later than its due date and its status is neither Completed nor Cancelled.
+
+The task list, dashboard, and CSV export use the same backend calculation.
+
+## CSV Export
+
+The CSV export includes all tasks matching the current search, filters, and sorting—not just the tasks on the current page.
+
+The exported columns include Task ID, Title, Description, Employee Name, Department, Priority, Status, Start Date, Due Date, Created Date, Completed Date, and Overdue.
+
+The backend handles CSV quoting and escaping, including commas, double quotes, and line breaks. It also protects untrusted text values against spreadsheet formula injection.
+
+## Frontend Pages
+
+- `/` — Dashboard
+- `/employees` — Employee list and employee management
+- `/tasks` — Task list, task forms, status updates, and CSV export
+
+The Tasks page stores search, filters, sorting, and pagination in the URL. This means refreshing or sharing a task-list URL preserves its query state. The Employees page uses page state for pagination.
+
+## Assignment Questions
+
+**1. How are valid status transitions enforced?**
+
+The backend status endpoint checks the current status against the allowed transitions. Invalid transitions are rejected, and the frontend only offers valid next statuses.
+
+**2. How is the completion date generated?**
+
+The backend sets `completedAt` when a task successfully transitions to Completed. The client cannot supply this field.
+
+**3. How are inactive and on-leave employees handled?**
+
+Assignment to an Inactive employee is rejected. For an On Leave employee, the task start date is checked against the inclusive leave interval.
+
+**4. How are filtering and pagination implemented?**
+
+The task controller uses MongoDB aggregation for search, filters, sorting, and pagination. Employee listing uses MongoDB queries with skip, limit, and a document count.
+
+**5. How are filters preserved in the URL?**
+
+The Tasks page uses React Router's `useSearchParams` to store search, filters, sorting, and the current page in the query string. These values are restored when the page is refreshed.
+
+**6. How is the race condition for assigning a fourth active task addressed?**
+
+Task assignment uses a shared employee version-field write within a MongoDB transaction before checking active-task capacity. Concurrent assignments for the same employee therefore conflict instead of both relying on the same stale task count. This requires transaction support from a replica set.
+
+## Before Deployment
+
+There are a few things to consider before making the application publicly available:
+
+- The application currently has no authentication or authorization, as required by the assignment. Do not expose the APIs publicly without considering appropriate access controls.
+- Configure CORS to allow only the intended frontend origin when deploying.
+- Use a MongoDB deployment that supports transactions, with suitable authentication and network restrictions.
+- Set `MONGODB_URI` as a secret environment variable on the backend hosting service.
+- Set `VITE_API_BASE_URL` to the deployed API URL when building the frontend. This variable is public configuration, so it must not contain secrets.
+- Use HTTPS for the deployed frontend and API.
+
+Deployment URLs are not included because hosting has not yet been configured.
