@@ -76,5 +76,6 @@ const taskSchema = new mongoose.Schema(
 );
 
 taskSchema.index({ taskId: 1 }, { unique: true });
+taskSchema.index({ assignedEmployee: 1, status: 1 });
 
 module.exports = mongoose.model('Task', taskSchema);

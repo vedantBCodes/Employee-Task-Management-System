@@ -5,6 +5,7 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const employeeRoutes = require('./routes/employeeRoutes');
 const taskRoutes = require('./routes/taskRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
 
 const app = express();
 const port = process.env.PORT || 5001;
@@ -13,6 +14,7 @@ app.use(cors());
 app.use(express.json());
 app.use('/api/employees', employeeRoutes);
 app.use('/api/tasks', taskRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 app.get('/api/health', (_req, res) => {
   const databaseReady = mongoose.connection.readyState === 1;
