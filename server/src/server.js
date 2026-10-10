@@ -75,10 +75,12 @@ async function startServer() {
     if (!process.env.MONGODB_URI) {
       throw new Error('MONGODB_URI must be set to start the API');
     }
-    await mongoose.connect(process.env.MONGODB_URI);
-    app.listen(port, () => {
-      console.log(`Server listening on port ${port}`);
-    });
+   await mongoose.connect(process.env.MONGODB_URI);
+console.log('MongoDB connected successfully');
+
+app.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
+});
   } catch (error) {
     console.error(`Unable to start server: ${error.message}`);
     process.exitCode = 1;
