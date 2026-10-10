@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const employeeRoutes = require('./routes/employeeRoutes');
+const taskRoutes = require('./routes/taskRoutes');
 
 const app = express();
 const port = process.env.PORT || 5001;
@@ -11,6 +12,7 @@ const port = process.env.PORT || 5001;
 app.use(cors());
 app.use(express.json());
 app.use('/api/employees', employeeRoutes);
+app.use('/api/tasks', taskRoutes);
 
 app.get('/api/health', (_req, res) => {
   const databaseReady = mongoose.connection.readyState === 1;
@@ -22,7 +24,12 @@ app.get('/api/health', (_req, res) => {
 app.use((err, _req, res, _next) => {
   if (err.code === 11000) {
     const duplicateField = Object.keys(err.keyPattern || {})[0];
-    const fieldLabel = duplicateField === 'employeeId' ? 'Employee ID' : 'Email';
+    const fieldLabels = {
+      employeeId: 'Employee ID',
+      email: 'Email',
+      taskId: 'Task ID',
+    };
+    const fieldLabel = fieldLabels[duplicateField] || 'Unique value';
     return res.status(409).json({
       success: false,
       error: { message: `${fieldLabel} already exists` },
@@ -33,7 +40,7 @@ app.use((err, _req, res, _next) => {
     const details = Object.values(err.errors).map(({ path, message }) => ({ path, message }));
     return res.status(400).json({
       success: false,
-      error: { message: 'Employee validation failed', details },
+      error: { message: 'Validation failed', details },
     });
   }
 
