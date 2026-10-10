@@ -41,6 +41,28 @@ function validateCreateBody(body) {
   return { data: body };
 }
 
+function validateUpdateBody(body) {
+  if (!isPlainObject(body)) {
+    return { error: 'Request body must be a JSON object' };
+  }
+
+  const unsupportedField = Object.keys(body).find((field) => !ALLOWED_CREATE_FIELDS.has(field));
+  if (unsupportedField) {
+    return { error: `The ${unsupportedField} field cannot be updated` };
+  }
+  if (Object.keys(body).length === 0) {
+    return { error: 'Provide at least one task field to update' };
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(body, 'assignedEmployee') &&
+    (typeof body.assignedEmployee !== 'string' || !/^[a-f\d]{24}$/i.test(body.assignedEmployee))
+  ) {
+    return { error: 'assignedEmployee must be a valid 24-character MongoDB ID' };
+  }
+
+  return { data: body };
+}
+
 function readSingleQueryValue(query, key) {
   const value = query[key];
   if (value === undefined) return { value: undefined };
@@ -158,6 +180,34 @@ function isTransactionUnsupported(error) {
   );
 }
 
+function sendTaskOperationError(res, error) {
+  if (error.status === 400 || error.status === 404) {
+    return res.status(error.status).json({ success: false, error: { message: error.message } });
+  }
+  if (isTransactionUnsupported(error)) {
+    return res.status(503).json({
+      success: false,
+      error: { message: 'Task changes require MongoDB transaction support' },
+    });
+  }
+  return null;
+}
+
+async function incrementEmployeeAssignmentVersions(employeeIds, session) {
+  const uniqueIds = [...new Set(employeeIds.filter(Boolean).map(String))].sort();
+  for (const id of uniqueIds) {
+    await Employee.updateOne(
+      { _id: id },
+      { $inc: { taskAssignmentVersion: 1 } },
+      { session, timestamps: false }
+    );
+  }
+}
+
+function isActiveTask(status) {
+  return ACTIVE_TASK_STATUSES.includes(status);
+}
+
 async function createTask(req, res) {
   const validatedBody = validateCreateBody(req.body);
   if (validatedBody.error) {
@@ -210,21 +260,189 @@ async function createTask(req, res) {
       task = candidate;
     });
   } catch (error) {
-    if (error.status === 400 || error.status === 404) {
-      return res.status(error.status).json({ success: false, error: { message: error.message } });
-    }
-    if (isTransactionUnsupported(error)) {
-      return res.status(503).json({
-        success: false,
-        error: { message: 'Task assignment requires MongoDB transaction support' },
-      });
-    }
+    const response = sendTaskOperationError(res, error);
+    if (response) return response;
     throw error;
   }
 
   await task.populate({ path: 'assignedEmployee', select: EMPLOYEE_DETAILS });
 
   return res.status(201).json({ success: true, data: task });
+}
+
+async function updateTaskStatus(req, res) {
+  if (!/^[a-f\d]{24}$/i.test(req.params.id)) {
+    return res.status(400).json({ success: false, error: { message: 'Invalid task ID' } });
+  }
+  if (!isPlainObject(req.body)) {
+    return res.status(400).json({ success: false, error: { message: 'Request body must be a JSON object' } });
+  }
+  const bodyFields = Object.keys(req.body);
+  if (bodyFields.some((field) => field !== 'status')) {
+    return res.status(400).json({
+      success: false,
+      error: { message: 'Only the status field can be updated on this endpoint' },
+    });
+  }
+
+  const requestedStatus = req.body.status;
+  const allowedStatuses = Task.schema.path('status').enumValues;
+  if (typeof requestedStatus !== 'string' || !allowedStatuses.includes(requestedStatus)) {
+    return res.status(400).json({
+      success: false,
+      error: { message: `status must be one of: ${allowedStatuses.join(', ')}` },
+    });
+  }
+
+  const transitions = {
+    Todo: ['In Progress', 'Cancelled'],
+    'In Progress': ['Completed', 'Cancelled'],
+  };
+
+  let task;
+  try {
+    await mongoose.connection.transaction(async (session) => {
+      const currentTask = await Task.findById(req.params.id).session(session);
+      if (!currentTask) {
+        const error = new Error('Task not found');
+        error.status = 404;
+        throw error;
+      }
+      if (!transitions[currentTask.status]?.includes(requestedStatus)) {
+        const error = new Error(`Transition from ${currentTask.status} to ${requestedStatus} is not allowed`);
+        error.status = 400;
+        throw error;
+      }
+
+      await incrementEmployeeAssignmentVersions([currentTask.assignedEmployee], session);
+      currentTask.status = requestedStatus;
+      currentTask.completedAt = requestedStatus === 'Completed' ? new Date() : undefined;
+      await currentTask.save({ session });
+      task = currentTask;
+    });
+  } catch (error) {
+    const response = sendTaskOperationError(res, error);
+    if (response) return response;
+    throw error;
+  }
+
+  await task.populate({ path: 'assignedEmployee', select: EMPLOYEE_DETAILS });
+  return res.status(200).json({ success: true, data: task });
+}
+
+async function updateTask(req, res) {
+  if (!/^[a-f\d]{24}$/i.test(req.params.id)) {
+    return res.status(400).json({ success: false, error: { message: 'Invalid task ID' } });
+  }
+
+  const validatedBody = validateUpdateBody(req.body);
+  if (validatedBody.error) {
+    return res.status(400).json({ success: false, error: { message: validatedBody.error } });
+  }
+
+  let task;
+  try {
+    await mongoose.connection.transaction(async (session) => {
+      const currentTask = await Task.findById(req.params.id).session(session);
+      if (!currentTask) {
+        const error = new Error('Task not found');
+        error.status = 404;
+        throw error;
+      }
+      if (currentTask.status === 'Completed' || currentTask.status === 'Cancelled') {
+        const error = new Error(`${currentTask.status} tasks cannot be edited`);
+        error.status = 400;
+        throw error;
+      }
+
+      const previousEmployeeId = currentTask.assignedEmployee?.toString();
+      const previousStartDate = currentTask.startDate?.getTime();
+      Object.assign(currentTask, validatedBody.data);
+      await currentTask.validate();
+
+      const assignedEmployeeId = currentTask.assignedEmployee?.toString();
+      const employeeChanged = assignedEmployeeId !== previousEmployeeId;
+      const startDateChanged = currentTask.startDate?.getTime() !== previousStartDate;
+      let assignedEmployee;
+
+      if (employeeChanged || startDateChanged) {
+        assignedEmployee = await Employee.findById(currentTask.assignedEmployee).session(session);
+        if (!assignedEmployee) {
+          const error = new Error('Assigned employee not found');
+          error.status = 404;
+          throw error;
+        }
+
+        const eligibilityError = assignmentEligibilityError(assignedEmployee, currentTask.startDate);
+        if (eligibilityError) {
+          const error = new Error(eligibilityError);
+          error.status = 400;
+          throw error;
+        }
+      }
+
+      if (employeeChanged || startDateChanged) {
+        await incrementEmployeeAssignmentVersions(
+          [previousEmployeeId, assignedEmployeeId],
+          session
+        );
+      }
+
+      if (employeeChanged && isActiveTask(currentTask.status)) {
+        const activeTaskCount = await Task.countDocuments({
+          assignedEmployee: currentTask.assignedEmployee,
+          status: { $in: ACTIVE_TASK_STATUSES },
+          _id: { $ne: currentTask._id },
+        }).session(session);
+        if (activeTaskCount >= MAX_ACTIVE_TASKS) {
+          const error = new Error(`An employee may have no more than ${MAX_ACTIVE_TASKS} active tasks`);
+          error.status = 400;
+          throw error;
+        }
+      }
+
+      await currentTask.save({ session });
+      task = currentTask;
+    });
+  } catch (error) {
+    const response = sendTaskOperationError(res, error);
+    if (response) return response;
+    throw error;
+  }
+
+  await task.populate({ path: 'assignedEmployee', select: EMPLOYEE_DETAILS });
+  return res.status(200).json({ success: true, data: task });
+}
+
+async function deleteTask(req, res) {
+  if (!/^[a-f\d]{24}$/i.test(req.params.id)) {
+    return res.status(400).json({ success: false, error: { message: 'Invalid task ID' } });
+  }
+
+  try {
+    await mongoose.connection.transaction(async (session) => {
+      const task = await Task.findById(req.params.id).session(session);
+      if (!task) {
+        const error = new Error('Task not found');
+        error.status = 404;
+        throw error;
+      }
+
+      if (isActiveTask(task.status)) {
+        await incrementEmployeeAssignmentVersions([task.assignedEmployee], session);
+      }
+      await Task.deleteOne({ _id: task._id }, { session });
+    });
+  } catch (error) {
+    const response = sendTaskOperationError(res, error);
+    if (response) return response;
+    throw error;
+  }
+
+  return res.status(200).json({
+    success: true,
+    data: { message: 'Task deleted successfully' },
+  });
 }
 
 async function listTasks(req, res) {
@@ -437,4 +655,10 @@ async function listTasks(req, res) {
   });
 }
 
-module.exports = { createTask, listTasks };
+module.exports = {
+  createTask,
+  listTasks,
+  updateTaskStatus,
+  updateTask,
+  deleteTask,
+};
