@@ -20,11 +20,19 @@ const employeeSchema = new mongoose.Schema(
       required: [true, 'Email is required'],
       trim: true,
       lowercase: true,
+      match: [/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/, 'Please enter a valid email address'],
     },
     phone: {
       type: String,
       required: [true, 'Phone is required'],
       trim: true,
+      validate: {
+        validator: function (phone) {
+          const normalizedPhone = phone.replace(/[\s-]/g, '');
+          return /^(?:\+91)?[6-9]\d{9}$/.test(normalizedPhone);
+        },
+        message: 'Please enter a valid 10-digit Indian mobile number, optionally prefixed with +91',
+      },
     },
     department: {
       type: String,
