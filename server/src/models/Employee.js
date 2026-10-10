@@ -66,6 +66,11 @@ const employeeSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    taskAssignmentVersion: {
+      type: Number,
+      default: 0,
+      select: false,
+    },
     leaveStart: {
       type: Date,
       required: function () {

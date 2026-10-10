@@ -1,8 +1,11 @@
+const mongoose = require('mongoose');
 const Employee = require('../models/Employee');
 const Task = require('../models/Task');
 
 const MAX_PAGE = 1_000_000;
 const MAX_LIMIT = 100;
+const MAX_ACTIVE_TASKS = 3;
+const ACTIVE_TASK_STATUSES = ['Todo', 'In Progress'];
 const ALLOWED_CREATE_FIELDS = new Set([
   'title',
   'description',
@@ -116,23 +119,109 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function assignmentEligibilityError(employee, startDate) {
+  if (employee.status === 'Inactive') {
+    return 'Tasks cannot be assigned to an inactive employee';
+  }
+
+  if (employee.status === 'On Leave') {
+    const leaveStart = employee.leaveStart;
+    const leaveEnd = employee.leaveEnd;
+    if (!leaveStart || !leaveEnd) {
+      return 'The employee leave interval is unavailable';
+    }
+
+    const toUtcCalendarDay = (date) =>
+      Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+    const taskStartDay = toUtcCalendarDay(startDate);
+    const leaveStartDay = toUtcCalendarDay(leaveStart);
+    const leaveEndDay = toUtcCalendarDay(leaveEnd);
+
+    if (taskStartDay >= leaveStartDay && taskStartDay <= leaveEndDay) {
+      return 'Tasks cannot start during the assigned employee leave period';
+    }
+    return null;
+  }
+
+  if (employee.status !== 'Active') {
+    return 'The assigned employee is not eligible for task assignment';
+  }
+
+  return null;
+}
+
+function isTransactionUnsupported(error) {
+  return (
+    error.code === 20 ||
+    error.codeName === 'IllegalOperation' ||
+    /Transaction numbers are only allowed|transactions are not supported/i.test(error.message)
+  );
+}
+
 async function createTask(req, res) {
   const validatedBody = validateCreateBody(req.body);
   if (validatedBody.error) {
     return res.status(400).json({ success: false, error: { message: validatedBody.error } });
   }
 
-  if (Object.prototype.hasOwnProperty.call(validatedBody.data, 'assignedEmployee')) {
-    const employee = await Employee.findById(validatedBody.data.assignedEmployee).select('_id');
-    if (!employee) {
-      return res.status(404).json({
+  let task;
+  try {
+    await mongoose.connection.transaction(async (session) => {
+      const candidate = new Task(validatedBody.data);
+      await candidate.validate();
+
+      const employee = await Employee.findById(candidate.assignedEmployee).session(session);
+      if (!employee) {
+        const error = new Error('Assigned employee not found');
+        error.status = 404;
+        throw error;
+      }
+
+      const eligibilityError = assignmentEligibilityError(employee, candidate.startDate);
+      if (eligibilityError) {
+        const error = new Error(eligibilityError);
+        error.status = 400;
+        throw error;
+      }
+
+      // This shared Employee write makes competing transactions for the same employee conflict.
+      const employeeWrite = await Employee.updateOne(
+        { _id: employee._id },
+        { $inc: { taskAssignmentVersion: 1 } },
+        { session, timestamps: false }
+      );
+      if (employeeWrite.matchedCount !== 1) {
+        const error = new Error('Assigned employee not found');
+        error.status = 404;
+        throw error;
+      }
+
+      const activeTaskCount = await Task.countDocuments({
+        assignedEmployee: employee._id,
+        status: { $in: ACTIVE_TASK_STATUSES },
+      }).session(session);
+      if (activeTaskCount >= MAX_ACTIVE_TASKS) {
+        const error = new Error(`An employee may have no more than ${MAX_ACTIVE_TASKS} active tasks`);
+        error.status = 400;
+        throw error;
+      }
+
+      await candidate.save({ session });
+      task = candidate;
+    });
+  } catch (error) {
+    if (error.status === 400 || error.status === 404) {
+      return res.status(error.status).json({ success: false, error: { message: error.message } });
+    }
+    if (isTransactionUnsupported(error)) {
+      return res.status(503).json({
         success: false,
-        error: { message: 'Assigned employee not found' },
+        error: { message: 'Task assignment requires MongoDB transaction support' },
       });
     }
+    throw error;
   }
 
-  const task = await Task.create(validatedBody.data);
   await task.populate({ path: 'assignedEmployee', select: EMPLOYEE_DETAILS });
 
   return res.status(201).json({ success: true, data: task });
