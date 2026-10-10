@@ -1,4 +1,6 @@
+const mongoose = require('mongoose');
 const Employee = require('../models/Employee');
+const Task = require('../models/Task');
 
 const MAX_PAGE = 1_000_000;
 const MAX_LIMIT = 100;
@@ -158,11 +160,63 @@ async function deleteEmployee(req, res) {
     return res.status(400).json({ success: false, error: { message: 'Invalid employee ID' } });
   }
 
-  const employee = await Employee.findById(req.params.id);
-  if (!employee) return sendNotFound(res);
+  try {
+    await mongoose.connection.transaction(async (session) => {
+      const employee = await Employee.findById(req.params.id).session(session);
+      if (!employee) {
+        const error = new Error('Employee not found');
+        error.status = 404;
+        throw error;
+      }
 
-  // Task-based deletion restrictions can be enforced here once the Task model exists.
-  await employee.deleteOne();
+      // Coordinate with task assignment transactions so a new active task cannot race deletion.
+      await Employee.updateOne(
+        { _id: employee._id },
+        { $inc: { taskAssignmentVersion: 1 } },
+        { session, timestamps: false }
+      );
+
+      const activeTaskExists = await Task.exists({
+        assignedEmployee: employee._id,
+        status: { $in: ['Todo', 'In Progress'] },
+      }).session(session);
+      if (activeTaskExists) {
+        const error = new Error('Cannot delete this employee while they have Todo or In Progress tasks.');
+        error.status = 400;
+        throw error;
+      }
+
+      await Task.updateMany(
+        { assignedEmployee: employee._id },
+        {
+          $set: {
+            assignedEmployeeSnapshot: {
+              _id: employee._id,
+              employeeId: employee.employeeId,
+              fullName: employee.fullName,
+              department: employee.department,
+              role: employee.role,
+              status: employee.status,
+            },
+          },
+        },
+        { session, timestamps: false }
+      );
+
+      await employee.deleteOne({ session });
+    });
+  } catch (error) {
+    if (error.status === 400 || error.status === 404) {
+      return res.status(error.status).json({ success: false, error: { message: error.message } });
+    }
+    if (/Transaction numbers are only allowed|transactions are not supported/i.test(error.message)) {
+      return res.status(503).json({
+        success: false,
+        error: { message: 'Employee deletion requires MongoDB transaction support' },
+      });
+    }
+    throw error;
+  }
 
   return res.status(200).json({
     success: true,

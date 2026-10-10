@@ -1,13 +1,12 @@
 const Employee = require('../models/Employee');
 const Task = require('../models/Task');
+const { getServerLocalCalendarContext, buildIsOverdueExpression } = require('../utils/taskOverdue');
 
 const TASK_STATUSES = ['Todo', 'In Progress', 'Completed', 'Cancelled'];
 const ACTIVE_TASK_STATUSES = ['Todo', 'In Progress'];
 
 async function getDashboardStats(_req, res) {
-  const now = new Date();
-  const localTodayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const overdueContext = getServerLocalCalendarContext();
 
   const [employeeStats, taskStatsResult, employeeWorkload] = await Promise.all([
     Employee.aggregate([
@@ -25,17 +24,7 @@ async function getDashboardStats(_req, res) {
           total: [{ $count: 'count' }],
           byStatus: [{ $group: { _id: '$status', count: { $sum: 1 } } }],
           overdue: [
-            { $match: { status: { $nin: ['Completed', 'Cancelled'] }, dueDate: { $type: 'date' } } },
-            {
-              $match: {
-                $expr: {
-                  $lt: [
-                    { $dateTrunc: { date: '$dueDate', unit: 'day', timezone: localTimeZone } },
-                    localTodayStart,
-                  ],
-                },
-              },
-            },
+            { $match: { $expr: buildIsOverdueExpression(overdueContext) } },
             { $count: 'count' },
           ],
         },

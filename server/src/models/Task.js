@@ -27,6 +27,14 @@ const taskSchema = new mongoose.Schema(
       ref: 'Employee',
       required: [true, 'Assigned employee is required'],
     },
+    assignedEmployeeSnapshot: {
+      _id: mongoose.Schema.Types.ObjectId,
+      employeeId: String,
+      fullName: String,
+      department: String,
+      role: String,
+      status: String,
+    },
     department: {
       type: String,
       required: [true, 'Department is required'],

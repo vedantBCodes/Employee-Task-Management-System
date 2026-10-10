@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Employee = require('../models/Employee');
 const Task = require('../models/Task');
+const { getServerLocalCalendarContext, buildIsOverdueExpression } = require('../utils/taskOverdue');
 
 const MAX_PAGE = 1_000_000;
 const MAX_LIMIT = 100;
@@ -445,7 +446,44 @@ async function deleteTask(req, res) {
   });
 }
 
-async function listTasks(req, res) {
+function escapeCsvValue(value) {
+  if (value === null || value === undefined) return '""';
+  let text = String(value);
+  if (typeof value !== 'number' && typeof value !== 'boolean') {
+    const leadingWhitespaceOrControl = text.match(/^[\s\u0000-\u001f\u007f-\u009f\ufeff]*/u)?.[0] || '';
+    const startsWithFormula = /^[=+\-@]/.test(text.slice(leadingWhitespaceOrControl.length));
+    const startsWithSpreadsheetControl = /^[\t\r\n]/.test(text);
+    if (startsWithFormula || startsWithSpreadsheetControl) text = `'${text}`;
+  }
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function formatCsvDate(value, dateOnly = false) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return dateOnly ? date.toISOString().slice(0, 10) : date.toISOString();
+}
+
+function taskToCsvRow(task) {
+  const employeeName = task.assignedEmployee?.fullName || task.assignedEmployee?.employeeId || 'Employee unavailable';
+  return [
+    task.taskId,
+    task.title,
+    task.description,
+    employeeName,
+    task.department,
+    task.priority,
+    task.status,
+    formatCsvDate(task.startDate, true),
+    formatCsvDate(task.dueDate, true),
+    formatCsvDate(task.createdAt),
+    formatCsvDate(task.completedAt),
+    task.isOverdue ? 'Yes' : 'No',
+  ].map(escapeCsvValue).join(',');
+}
+
+async function runTaskQuery(req, res, exportCsv) {
   const allowedQueryFields = new Set([
     'page',
     'limit',
@@ -564,6 +602,7 @@ async function listTasks(req, res) {
     },
     { $unwind: { path: '$assignedEmployee', preserveNullAndEmptyArrays: true } }
   );
+  pipeline.push({ $set: { assignedEmployee: { $ifNull: ['$assignedEmployee', '$assignedEmployeeSnapshot'] } } });
 
   if (search) {
     const searchPattern = new RegExp(escapeRegExp(search), 'i');
@@ -575,6 +614,7 @@ async function listTasks(req, res) {
   }
 
   const sortDirection = sortOrder === 'asc' ? 1 : -1;
+  const overdueContext = getServerLocalCalendarContext();
   let sort;
   if (sortBy === 'priority') {
     pipeline.push({
@@ -597,50 +637,75 @@ async function listTasks(req, res) {
     sort = { [sortBy]: sortDirection, _id: -1 };
   }
 
+  const taskProjection = {
+    $project: {
+      _id: 1,
+      taskId: 1,
+      title: 1,
+      description: 1,
+      assignedEmployee: {
+        $cond: [
+          { $ifNull: ['$assignedEmployee._id', false] },
+          {
+            _id: '$assignedEmployee._id',
+            employeeId: '$assignedEmployee.employeeId',
+            fullName: '$assignedEmployee.fullName',
+            department: '$assignedEmployee.department',
+            role: '$assignedEmployee.role',
+            status: '$assignedEmployee.status',
+          },
+          null,
+        ],
+      },
+      department: 1,
+      priority: 1,
+      status: 1,
+      isOverdue: 1,
+      startDate: 1,
+      dueDate: 1,
+      completedAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  };
+
+  let tasks;
+  if (exportCsv) {
+    pipeline.push(
+      { $sort: sort },
+      { $set: { isOverdue: buildIsOverdueExpression(overdueContext) } },
+      ...(sortBy === 'priority' ? [{ $unset: '_priorityRank' }] : []),
+      taskProjection
+    );
+    tasks = await Task.aggregate(pipeline);
+    const headers = [
+      'Task ID', 'Title', 'Description', 'Employee Name', 'Department', 'Priority',
+      'Status', 'Start Date', 'Due Date', 'Created Date', 'Completed Date', 'Overdue',
+    ];
+    const csv = [headers.map(escapeCsvValue).join(','), ...tasks.map(taskToCsvRow)].join('\r\n');
+    return res
+      .status(200)
+      .type('text/csv; charset=utf-8')
+      .attachment('tasks.csv')
+      .send(`\uFEFF${csv}`);
+  }
+
   pipeline.push({
     $facet: {
       data: [
         { $sort: sort },
         { $skip: skip },
         { $limit: limit },
+        { $set: { isOverdue: buildIsOverdueExpression(overdueContext) } },
         ...(sortBy === 'priority' ? [{ $unset: '_priorityRank' }] : []),
-        {
-          $project: {
-            _id: 1,
-            taskId: 1,
-            title: 1,
-            description: 1,
-            assignedEmployee: {
-              $cond: [
-                { $ifNull: ['$assignedEmployee._id', false] },
-                {
-                  _id: '$assignedEmployee._id',
-                  employeeId: '$assignedEmployee.employeeId',
-                  fullName: '$assignedEmployee.fullName',
-                  department: '$assignedEmployee.department',
-                  role: '$assignedEmployee.role',
-                  status: '$assignedEmployee.status',
-                },
-                null,
-              ],
-            },
-            department: 1,
-            priority: 1,
-            status: 1,
-            startDate: 1,
-            dueDate: 1,
-            completedAt: 1,
-            createdAt: 1,
-            updatedAt: 1,
-          },
-        },
+        taskProjection,
       ],
       metadata: [{ $count: 'total' }],
     },
   });
 
   const [result] = await Task.aggregate(pipeline);
-  const tasks = result?.data ?? [];
+  tasks = result?.data ?? [];
   const total = result?.metadata[0]?.total ?? 0;
 
   return res.status(200).json({
@@ -655,9 +720,18 @@ async function listTasks(req, res) {
   });
 }
 
+async function listTasks(req, res) {
+  return runTaskQuery(req, res, false);
+}
+
+async function exportTasks(req, res) {
+  return runTaskQuery(req, res, true);
+}
+
 module.exports = {
   createTask,
   listTasks,
+  exportTasks,
   updateTaskStatus,
   updateTask,
   deleteTask,
